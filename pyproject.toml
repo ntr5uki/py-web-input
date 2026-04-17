@@ -1,0 +1,17 @@
+[project]
+name = "py-network-input"
+version = "0.1.0"
+description = "LAN text input bridge for Streamlit on Linux"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "streamlit>=1.56.0",
+]
+
+[tool.uv]
+package = false
+
+
+[[tool.uv.index]]
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple/" 

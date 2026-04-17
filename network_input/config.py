@@ -1,0 +1,33 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import os
+
+
+@dataclass(slots=True)
+class AppConfig:
+    host: str = "0.0.0.0"
+    port: int = 8765
+    enable_api: bool = False
+    max_history: int = 20
+    api_token: str | None = None
+    input_backend: str = "wtype"
+
+    @classmethod
+    def from_env(cls) -> "AppConfig":
+        api_token = os.getenv("NETWORK_INPUT_API_TOKEN", "").strip() or None
+        return cls(
+            host=os.getenv("NETWORK_INPUT_HOST", "0.0.0.0"),
+            port=int(os.getenv("NETWORK_INPUT_PORT", "8765")),
+            enable_api=_env_bool("NETWORK_INPUT_ENABLE_API", default=False),
+            max_history=int(os.getenv("NETWORK_INPUT_MAX_HISTORY", "20")),
+            api_token=api_token,
+            input_backend=os.getenv("NETWORK_INPUT_BACKEND", "wtype").strip() or "wtype",
+        )
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
