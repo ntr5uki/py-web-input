@@ -299,8 +299,6 @@ def render_index_html(config: AppConfig) -> str:
   <div class="wrap">
     <div class="card">
       <h1>局域网文字投送</h1>
-      <p class="muted">手机浏览器可直接访问。默认写入剪贴板；可选自动上屏或单独发送回车。</p>
-      <div id="banner" class="status muted">等待发送</div>
     </div>
 
     <div class="card">
@@ -317,6 +315,8 @@ def render_index_html(config: AppConfig) -> str:
     </div>
 
     <div class="card">
+      <p class="muted">手机浏览器可直接访问。默认写入剪贴板；可选自动上屏或单独发送回车。</p>
+      <div id="banner" class="status muted">等待发送</div>
       <div id="meta" class="muted">后端类型：{config.input_backend} · 通知：{"开启" if config.enable_notifications else "关闭"}</div>
       <div id="history"></div>
     </div>
