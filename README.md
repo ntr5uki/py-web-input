@@ -1,12 +1,13 @@
 # py-network-input
 
-一个基于 `Streamlit` 的局域网文字投送工具：网页端输入或局域网设备 `POST` 文字到本机后端，本机再把文字输入到**当前焦点位置**。
+一个基于 `Streamlit` 的局域网文字投送工具：网页端输入或局域网设备 `POST` 文字到本机后端，本机先写入 Wayland 剪贴板；网页端还可选自动上屏，或单独发送一个回车按键。
 
 ## 当前实现
 
 - 页面：`streamlit_app.py`
 - 局域网接口：内置 `POST /send`
-- 输入后端：Wayland `wtype`
+- 输入后端：Wayland `wl-copy`
+- 网页增强：可选 `Ctrl+V` / `Ctrl+Shift+V` 自动上屏、单独发送回车
 - 历史记录：仅内存保存，重启清空
 
 ## 运行前准备
@@ -17,13 +18,19 @@
 uv sync
 ```
 
-2. 在 Linux Wayland 环境安装 `wtype`：
+2. 在 Linux Wayland 环境安装 `wl-clipboard`：
+
+```bash
+sudo apt install wl-clipboard
+```
+
+如果你的发行版不使用 `apt`，请改用对应包管理器安装。
+
+如果要使用网页里的“自动上屏”或“发送回车”，还需要安装：
 
 ```bash
 sudo apt install wtype
 ```
-
-如果你的发行版不使用 `apt`，请改用对应包管理器安装。
 
 ## 启动
 
@@ -72,18 +79,30 @@ curl -X POST \
   http://127.0.0.1:8765/send
 ```
 
+## 网页操作
+
+- `发送文本`：把内容写入剪贴板
+- `自动上屏`：勾选后在写入剪贴板后再发送粘贴快捷键
+- `粘贴快捷键`：
+  - `Ctrl+V`：适合普通 GUI 输入框
+  - `Ctrl+Shift+V`：适合 `kitty` 等终端
+- `发送回车`：单独发送一个回车按键，不依赖文本内容
+
 ## 可选环境变量
 
 - `NETWORK_INPUT_HOST`：HTTP 服务地址，默认 `0.0.0.0`
 - `NETWORK_INPUT_PORT`：HTTP 服务端口，默认 `8765`
 - `NETWORK_INPUT_ENABLE_API`：是否开启 HTTP API，默认 `false`
+- `NETWORK_INPUT_ENABLE_NOTIFICATIONS`：是否开启系统通知，默认 `false`
 - `NETWORK_INPUT_MAX_HISTORY`：历史记录条数，默认 `20`
 - `NETWORK_INPUT_API_TOKEN`：设置后启用 Bearer Token 鉴权
-- `NETWORK_INPUT_BACKEND`：输入后端，默认 `wtype`
+- `NETWORK_INPUT_BACKEND`：输入后端，默认 `clipboard`
 
 ## 注意事项
 
-- 只有当光标位于可编辑控件中时，文字才能正确输入。
-- `wtype` 未安装时，接口仍可接收消息，但执行会失败，错误会在页面中显示。
-- 多行文本会自动转成空格分隔的一行，避免模拟回车影响当前窗口。
+- 发送后只会写入剪贴板，不会自动模拟键盘或粘贴。
+- 系统通知默认关闭；如需开启，启动前设置 `NETWORK_INPUT_ENABLE_NOTIFICATIONS=true`。
+- `wl-copy` 未安装时，接口仍可接收消息，但执行会失败，错误会在页面中显示。
+- 勾选自动上屏或点击发送回车时，需要本机安装 `wtype`。
+- 多行文本会保留换行，最终粘贴效果取决于目标应用。
 - 当前版本主要面向 **Linux Wayland**。

@@ -13,7 +13,11 @@ class AppRuntime:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.backend = create_input_backend(config.input_backend)
-        self.service = MessageService(self.backend, max_history=config.max_history)
+        self.service = MessageService(
+            self.backend,
+            max_history=config.max_history,
+            enable_notifications=config.enable_notifications,
+        )
         self.api = ApiServer(self.service, config) if config.enable_api else None
         self._started = False
 

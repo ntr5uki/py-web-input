@@ -9,9 +9,10 @@ class AppConfig:
     host: str = "0.0.0.0"
     port: int = 8765
     enable_api: bool = False
+    enable_notifications: bool = False
     max_history: int = 20
     api_token: str | None = None
-    input_backend: str = "wtype"
+    input_backend: str = "clipboard"
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -20,9 +21,10 @@ class AppConfig:
             host=os.getenv("NETWORK_INPUT_HOST", "0.0.0.0"),
             port=int(os.getenv("NETWORK_INPUT_PORT", "8765")),
             enable_api=_env_bool("NETWORK_INPUT_ENABLE_API", default=False),
+            enable_notifications=_env_bool("NETWORK_INPUT_ENABLE_NOTIFICATIONS", default=False),
             max_history=int(os.getenv("NETWORK_INPUT_MAX_HISTORY", "20")),
             api_token=api_token,
-            input_backend=os.getenv("NETWORK_INPUT_BACKEND", "wtype").strip() or "wtype",
+            input_backend=os.getenv("NETWORK_INPUT_BACKEND", "clipboard").strip() or "clipboard",
         )
 
 
