@@ -1,11 +1,11 @@
 # py-network-input
 
-一个基于 `Streamlit` 的局域网文字投送工具：网页端输入或局域网设备 `POST` 文字到本机后端，本机先写入 Wayland 剪贴板；网页端还可选自动上屏，或单独发送一个回车按键。
+一个轻量的局域网文字投送工具：内置 HTTP 服务同时提供手机网页端和接口，本机收到文字后写入 Wayland 剪贴板；网页端还可选自动上屏，或单独发送一个回车按键。
 
 ## 当前实现
 
-- 页面：`streamlit_app.py`
-- 局域网接口：内置 `POST /send`
+- 页面：内置 HTML 手机网页
+- 局域网接口：内置 `POST /send` 和 `/api/*`
 - 输入后端：Wayland `wl-copy`
 - 网页增强：可选 `Ctrl+V` / `Ctrl+Shift+V` 自动上屏、单独发送回车
 - 历史记录：仅内存保存，重启清空
@@ -35,27 +35,19 @@ sudo apt install wtype
 ## 启动
 
 ```bash
-uv run streamlit run streamlit_app.py
+uv run python -m network_input
 ```
 
-默认 Streamlit 页面监听：
+默认服务监听：
 
 - `0.0.0.0:18502`
 
 启动后不会自动打开浏览器，手动访问：
 
 - `http://localhost:18502`
+- `http://你的局域网IP:18502`
 
-默认不会启动额外的 HTTP API，因此不会监听 `8765`。如果需要让局域网设备直接调用接口，可以开启 HTTP API：
-
-```bash
-NETWORK_INPUT_ENABLE_API=true uv run streamlit run streamlit_app.py
-```
-
-开启后会在 Streamlit 进程里同时启动一个 HTTP 服务，监听：
-
-- `0.0.0.0:8765`
-- 页面里会展示可直接调用的本机地址
+页面和接口都复用同一个端口，不再额外占用 `8765`。
 
 ## 接口
 
@@ -76,7 +68,7 @@ NETWORK_INPUT_ENABLE_API=true uv run streamlit run streamlit_app.py
 curl -X POST \
   -H 'Content-Type: application/json' \
   -d '{"text":"你好，来自局域网设备","source":"curl"}' \
-  http://127.0.0.1:8765/send
+  http://127.0.0.1:18502/send
 ```
 
 ## 网页操作
@@ -91,8 +83,7 @@ curl -X POST \
 ## 可选环境变量
 
 - `NETWORK_INPUT_HOST`：HTTP 服务地址，默认 `0.0.0.0`
-- `NETWORK_INPUT_PORT`：HTTP 服务端口，默认 `8765`
-- `NETWORK_INPUT_ENABLE_API`：是否开启 HTTP API，默认 `false`
+- `NETWORK_INPUT_PORT`：HTTP 服务端口，默认 `18502`
 - `NETWORK_INPUT_ENABLE_NOTIFICATIONS`：是否开启系统通知，默认 `false`
 - `NETWORK_INPUT_MAX_HISTORY`：历史记录条数，默认 `20`
 - `NETWORK_INPUT_API_TOKEN`：设置后启用 Bearer Token 鉴权

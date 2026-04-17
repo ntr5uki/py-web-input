@@ -1,6 +1,0 @@
-[server]
-port = 18502
-headless = true
-
-[browser]
-gatherUsageStats = false

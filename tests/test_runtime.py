@@ -7,14 +7,16 @@ from network_input.runtime import AppRuntime
 
 
 class RuntimeTests(unittest.TestCase):
-    def test_api_is_disabled_by_default(self) -> None:
+    def test_api_is_enabled_by_default(self) -> None:
         runtime = AppRuntime(AppConfig())
+        self.addCleanup(runtime.stop)
+        runtime.start()
 
-        self.assertIsNone(runtime.api)
-        self.assertEqual(runtime.api_urls(), [])
+        self.assertIsNotNone(runtime.api)
+        self.assertTrue(runtime.web_urls())
 
     def test_api_can_be_enabled(self) -> None:
-        runtime = AppRuntime(AppConfig(host="127.0.0.1", port=0, enable_api=True))
+        runtime = AppRuntime(AppConfig(host="127.0.0.1", port=0))
         self.addCleanup(runtime.stop)
         runtime.start()
 

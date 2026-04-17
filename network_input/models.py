@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import asdict
 from datetime import datetime, timezone
 from enum import StrEnum
 import uuid
@@ -43,3 +44,10 @@ class MessageRecord:
             action=action,
             shortcut=shortcut,
         )
+
+    def to_dict(self) -> dict[str, str | None]:
+        payload = asdict(self)
+        payload["received_at"] = self.received_at.isoformat()
+        payload["processed_at"] = self.processed_at.isoformat() if self.processed_at else None
+        payload["status"] = self.status.value
+        return payload

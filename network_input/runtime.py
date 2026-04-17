@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import atexit
 import socket
+import threading
 
 from .config import AppConfig
 from .http_api import ApiServer
@@ -18,15 +19,15 @@ class AppRuntime:
             max_history=config.max_history,
             enable_notifications=config.enable_notifications,
         )
-        self.api = ApiServer(self.service, config) if config.enable_api else None
+        self.api = ApiServer(self.service, config)
         self._started = False
+        self._stop_event = threading.Event()
 
     def start(self) -> "AppRuntime":
         if self._started:
             return self
         self.service.start()
-        if self.api:
-            self.api.start()
+        self.api.start()
         self._started = True
         atexit.register(self.stop)
         return self
@@ -34,18 +35,25 @@ class AppRuntime:
     def stop(self) -> None:
         if not self._started:
             return
-        if self.api:
-            self.api.stop()
+        self._stop_event.set()
+        self.api.stop()
         self.service.stop()
         self._started = False
 
     def api_urls(self) -> list[str]:
-        if not self.api:
-            return []
         urls = [f"http://127.0.0.1:{self.api.port}/send"]
         for address in _lan_ipv4_addresses():
             urls.append(f"http://{address}:{self.api.port}/send")
         return list(dict.fromkeys(urls))
+
+    def web_urls(self) -> list[str]:
+        urls = [f"http://127.0.0.1:{self.api.port}/"]
+        for address in _lan_ipv4_addresses():
+            urls.append(f"http://{address}:{self.api.port}/")
+        return list(dict.fromkeys(urls))
+
+    def wait_forever(self) -> None:
+        self._stop_event.wait()
 
 
 def _lan_ipv4_addresses() -> list[str]:

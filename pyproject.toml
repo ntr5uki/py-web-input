@@ -1,12 +1,10 @@
 [project]
 name = "py-network-input"
 version = "0.1.0"
-description = "LAN text input bridge for Streamlit on Linux"
+description = "LAN text input bridge with lightweight mobile web UI"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = [
-    "streamlit>=1.56.0",
-]
+dependencies = []
 
 [tool.uv]
 package = false
