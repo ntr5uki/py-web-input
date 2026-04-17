@@ -8,7 +8,7 @@ from network_input.runtime import AppRuntime
 
 class RuntimeTests(unittest.TestCase):
     def test_api_is_enabled_by_default(self) -> None:
-        runtime = AppRuntime(AppConfig())
+        runtime = AppRuntime(AppConfig(port=0))
         self.addCleanup(runtime.stop)
         runtime.start()
 

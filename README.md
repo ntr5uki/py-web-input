@@ -5,7 +5,7 @@
 ## 当前实现
 
 - 页面：内置 HTML 手机网页
-- 局域网接口：内置 `POST /send` 和 `/api/*`
+- 局域网接口：内置网页接口和脚本接口 `POST /send`
 - 输入后端：Wayland `wl-copy`
 - 网页增强：可选 `Ctrl+V` / `Ctrl+Shift+V` 自动上屏、单独发送回车
 - 历史记录：仅内存保存，重启清空
@@ -49,9 +49,28 @@ uv run python -m network_input
 
 页面和接口都复用同一个端口，不再额外占用 `8765`。
 
+启动后如果当前终端可交互，会额外开启配对命令行：
+
+- `list`：查看待确认联机请求
+- `allow <id>`：允许某个请求
+- `deny <id>`：拒绝某个请求
+
 ## 接口
 
+### 网页联机流程
+
+- 手机首次打开页面时，只能先点击“申请联机”
+- 主控端在当前服务终端执行 `allow <id>` 或 `deny <id>`
+- 允许后，该网页设备获得当天有效的联机会话
+- 会话只保存在内存中，重启服务后需要重新联机
+
 ### `POST /send`
+
+说明：
+
+- 该接口保留给脚本调用
+- 必须配置 `NETWORK_INPUT_API_TOKEN`
+- 必须携带 `Authorization: Bearer <API_TOKEN>`
 
 请求体：
 
@@ -66,6 +85,7 @@ uv run python -m network_input
 
 ```bash
 curl -X POST \
+  -H 'Authorization: Bearer secret-token' \
   -H 'Content-Type: application/json' \
   -d '{"text":"你好，来自局域网设备","source":"curl"}' \
   http://127.0.0.1:18502/send
@@ -79,6 +99,7 @@ curl -X POST \
   - `Ctrl+V`：适合普通 GUI 输入框
   - `Ctrl+Shift+V`：适合 `kitty` 等终端
 - `发送回车`：单独发送一个回车按键，不依赖文本内容
+- `断开联机`：清除当前网页的本地会话
 
 ## 可选环境变量
 
@@ -86,7 +107,7 @@ curl -X POST \
 - `NETWORK_INPUT_PORT`：HTTP 服务端口，默认 `18502`
 - `NETWORK_INPUT_ENABLE_NOTIFICATIONS`：是否开启系统通知，默认 `false`
 - `NETWORK_INPUT_MAX_HISTORY`：历史记录条数，默认 `20`
-- `NETWORK_INPUT_API_TOKEN`：设置后启用 Bearer Token 鉴权
+- `NETWORK_INPUT_API_TOKEN`：脚本接口 `/send` 的 Bearer Token
 - `NETWORK_INPUT_BACKEND`：输入后端，默认 `clipboard`
 
 ## 注意事项
@@ -96,4 +117,5 @@ curl -X POST \
 - `wl-copy` 未安装时，接口仍可接收消息，但执行会失败，错误会在页面中显示。
 - 勾选自动上屏或点击发送回车时，需要本机安装 `wtype`。
 - 多行文本会保留换行，最终粘贴效果取决于目标应用。
+- 网页接口默认需要先联机；脚本接口 `/send` 则始终依赖 `API_TOKEN`。
 - 当前版本主要面向 **Linux Wayland**。

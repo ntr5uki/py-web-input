@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -7,6 +8,7 @@ from pathlib import PurePosixPath
 import threading
 from typing import Any
 
+from .auth import PairingManager
 from .config import AppConfig
 from .models import MessageRecord
 from .service import MessageService
@@ -16,9 +18,13 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
 
-def create_handler(service: MessageService, config: AppConfig) -> type[BaseHTTPRequestHandler]:
+def create_handler(
+    service: MessageService,
+    config: AppConfig,
+    pairing: PairingManager,
+) -> type[BaseHTTPRequestHandler]:
     class ApiHandler(BaseHTTPRequestHandler):
-        server_version = "LanInput/0.1"
+        server_version = "LanInput/0.2"
 
         def do_OPTIONS(self) -> None:
             self.send_response(HTTPStatus.NO_CONTENT)
@@ -37,9 +43,22 @@ def create_handler(service: MessageService, config: AppConfig) -> type[BaseHTTPR
                         "ok": True,
                         "backend_ready": service.backend_ready(),
                         "pending": service.pending_count(),
+                        "pair_pending": len(pairing.list_pending_requests()),
                     },
                 )
                 return
+            if path == PurePosixPath("/api/pair/status"):
+                client_id = self._require_client_id()
+                if client_id is None:
+                    return
+                payload = pairing.get_pair_status(client_id, self._session_token())
+                self._send_json(HTTPStatus.OK, {"ok": True, **payload})
+                return
+
+            client_id = self._require_authorized_session()
+            if client_id is None:
+                return
+
             if path == PurePosixPath("/api/history"):
                 self._send_json(
                     HTTPStatus.OK,
@@ -47,12 +66,12 @@ def create_handler(service: MessageService, config: AppConfig) -> type[BaseHTTPR
                         "ok": True,
                         "items": [item.to_dict() for item in service.list_history()],
                         "pending": service.pending_count(),
-                        "backend_ready": service.backend_ready(),
                     },
                 )
                 return
             if path == PurePosixPath("/api/status"):
-                latest = service.list_history()[0] if service.list_history() else None
+                latest_history = service.list_history()
+                latest = latest_history[0] if latest_history else None
                 self._send_json(
                     HTTPStatus.OK,
                     {
@@ -60,6 +79,7 @@ def create_handler(service: MessageService, config: AppConfig) -> type[BaseHTTPR
                         "backend_ready": service.backend_ready(),
                         "pending": service.pending_count(),
                         "latest": latest.to_dict() if latest else None,
+                        "client_id": client_id,
                     },
                 )
                 return
@@ -67,9 +87,10 @@ def create_handler(service: MessageService, config: AppConfig) -> type[BaseHTTPR
 
         def do_POST(self) -> None:
             path = PurePosixPath(self.path.split("?", 1)[0])
+
             if path == PurePosixPath("/send"):
-                if not self._authorized():
-                    self._send_error(HTTPStatus.UNAUTHORIZED, "鉴权失败。")
+                if not self._legacy_authorized():
+                    self._send_error(HTTPStatus.UNAUTHORIZED, "脚本接口鉴权失败。")
                     return
                 payload = self._read_json_payload()
                 if payload is None:
@@ -78,6 +99,42 @@ def create_handler(service: MessageService, config: AppConfig) -> type[BaseHTTPR
                 if record is None:
                     return
                 self._send_record(record)
+                return
+
+            if path == PurePosixPath("/api/pair/request"):
+                client_id = self._require_client_id()
+                if client_id is None:
+                    return
+                request = pairing.request_pair(
+                    client_id=client_id,
+                    remote_addr=self.client_address[0],
+                    user_agent=self.headers.get("User-Agent", ""),
+                )
+                if request.status == "pending":
+                    print(
+                        f"\n收到联机请求 [{request.request_id}] ip={request.remote_addr} "
+                        f"client={request.client_id}"
+                    )
+                    print("请在当前终端输入: allow <id> 或 deny <id>")
+                self._send_json(
+                    HTTPStatus.ACCEPTED,
+                    {
+                        "ok": True,
+                        "request": request.to_dict(),
+                    },
+                )
+                return
+
+            if path == PurePosixPath("/api/pair/logout"):
+                client_id = self._require_client_id()
+                if client_id is None:
+                    return
+                pairing.logout(client_id, self._session_token())
+                self._send_json(HTTPStatus.OK, {"ok": True})
+                return
+
+            client_id = self._require_authorized_session()
+            if client_id is None:
                 return
 
             if path == PurePosixPath("/api/send"):
@@ -105,7 +162,6 @@ def create_handler(service: MessageService, config: AppConfig) -> type[BaseHTTPR
             if content_length <= 0 or content_length > 64_000:
                 self._send_error(HTTPStatus.BAD_REQUEST, "请求体大小不合法。")
                 return None
-
             try:
                 payload = json.loads(self.rfile.read(content_length))
             except json.JSONDecodeError:
@@ -124,11 +180,9 @@ def create_handler(service: MessageService, config: AppConfig) -> type[BaseHTTPR
                 return None
             if not isinstance(source, str):
                 source = "api"
-
             try:
                 return service.submit(text=text, source=source)
             except ValueError as exc:
-                self._send_error(HTTPStatus.NOT_FOUND, "未找到接口。")
                 self._send_error(HTTPStatus.BAD_REQUEST, str(exc))
                 return None
 
@@ -155,9 +209,33 @@ def create_handler(service: MessageService, config: AppConfig) -> type[BaseHTTPR
         def _send_record(self, record: MessageRecord) -> None:
             self._send_json(HTTPStatus.ACCEPTED, {"ok": True, "record": record.to_dict()})
 
-        def _authorized(self) -> bool:
+        def _client_id(self) -> str | None:
+            client_id = self.headers.get("X-Client-Id", "").strip()
+            return client_id or None
+
+        def _session_token(self) -> str | None:
+            token = self.headers.get("X-Session-Token", "").strip()
+            return token or None
+
+        def _require_client_id(self) -> str | None:
+            client_id = self._client_id()
+            if client_id:
+                return client_id
+            self._send_error(HTTPStatus.BAD_REQUEST, "缺少客户端标识。")
+            return None
+
+        def _require_authorized_session(self) -> str | None:
+            client_id = self._require_client_id()
+            if client_id is None:
+                return None
+            if not pairing.validate_session(client_id, self._session_token()):
+                self._send_error(HTTPStatus.UNAUTHORIZED, "设备未联机或会话已失效。")
+                return None
+            return client_id
+
+        def _legacy_authorized(self) -> bool:
             if not config.api_token:
-                return True
+                return False
             header = self.headers.get("Authorization", "")
             return header == f"Bearer {config.api_token}"
 
@@ -183,15 +261,15 @@ def create_handler(service: MessageService, config: AppConfig) -> type[BaseHTTPR
 
         def _send_common_headers(self) -> None:
             self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Client-Id, X-Session-Token")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
     return ApiHandler
 
 
 class ApiServer:
-    def __init__(self, service: MessageService, config: AppConfig) -> None:
-        handler = create_handler(service, config)
+    def __init__(self, service: MessageService, config: AppConfig, pairing: PairingManager) -> None:
+        handler = create_handler(service, config, pairing)
         self._server = ThreadingHTTPServer((config.host, config.port), handler)
         self._thread: threading.Thread | None = None
 
@@ -217,6 +295,8 @@ class ApiServer:
 
 
 def render_index_html(config: AppConfig) -> str:
+    backend = escape(config.input_backend)
+    notifications = "开启" if config.enable_notifications else "关闭"
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -281,6 +361,7 @@ def render_index_html(config: AppConfig) -> str:
     }}
     .success {{ color: #22c55e; }}
     .error {{ color: #ef4444; }}
+    .warning {{ color: #f59e0b; }}
     .muted {{ color: #94a3b8; }}
     .history-item {{
       padding: 10px 0;
@@ -293,6 +374,7 @@ def render_index_html(config: AppConfig) -> str:
       align-items: center;
       gap: 8px;
     }}
+    .hidden {{ display: none; }}
   </style>
 </head>
 <body>
@@ -301,7 +383,17 @@ def render_index_html(config: AppConfig) -> str:
       <h1>局域网文字投送</h1>
     </div>
 
-    <div class="card">
+    <div id="pairCard" class="card">
+      <div id="pairBanner" class="status muted">设备尚未联机</div>
+      <p class="muted">当前网页必须先联机，主控端会在服务终端里确认通过或拒绝。</p>
+      <div class="row">
+        <button id="pairButton">申请联机</button>
+        <button id="refreshPairButton" class="secondary">刷新状态</button>
+      </div>
+      <div id="pairMeta" class="muted" style="margin-top:12px;"></div>
+    </div>
+
+    <div id="controlCard" class="card hidden">
       <textarea id="text" placeholder="输入要投送的文字"></textarea>
       <div class="row">
         <label><input id="autoPaste" type="checkbox"> 自动上屏</label>
@@ -311,18 +403,26 @@ def render_index_html(config: AppConfig) -> str:
       <div class="row">
         <button id="sendButton">发送文本</button>
         <button id="enterButton" class="secondary">发送回车</button>
+        <button id="logoutButton" class="secondary">断开联机</button>
       </div>
     </div>
 
-    <div class="card">
-      <p class="muted">手机浏览器可直接访问。默认写入剪贴板；可选自动上屏或单独发送回车。</p>
+    <div id="statusCard" class="card hidden">
       <div id="banner" class="status muted">等待发送</div>
-      <div id="meta" class="muted">后端类型：{config.input_backend} · 通知：{"开启" if config.enable_notifications else "关闭"}</div>
+      <div id="meta" class="muted">后端类型：{backend} · 通知：{notifications}</div>
       <div id="history"></div>
     </div>
   </div>
 
   <script>
+    const pairCard = document.getElementById("pairCard");
+    const controlCard = document.getElementById("controlCard");
+    const statusCard = document.getElementById("statusCard");
+    const pairBanner = document.getElementById("pairBanner");
+    const pairMeta = document.getElementById("pairMeta");
+    const pairButton = document.getElementById("pairButton");
+    const refreshPairButton = document.getElementById("refreshPairButton");
+    const logoutButton = document.getElementById("logoutButton");
     const textEl = document.getElementById("text");
     const autoPasteEl = document.getElementById("autoPaste");
     const sendButton = document.getElementById("sendButton");
@@ -330,24 +430,28 @@ def render_index_html(config: AppConfig) -> str:
     const banner = document.getElementById("banner");
     const historyEl = document.getElementById("history");
 
+    const storage = window.localStorage;
+    let clientId = storage.getItem("network_input_client_id");
+    let sessionToken = storage.getItem("network_input_session_token");
+
+    function ensureClientId() {{
+      if (clientId) return clientId;
+      clientId = (window.crypto?.randomUUID?.() || `client-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`);
+      storage.setItem("network_input_client_id", clientId);
+      return clientId;
+    }}
+
+    function apiHeaders(extra = {{}}) {{
+      const headers = {{
+        "X-Client-Id": ensureClientId(),
+        ...extra,
+      }};
+      if (sessionToken) headers["X-Session-Token"] = sessionToken;
+      return headers;
+    }}
+
     function selectedShortcut() {{
       return document.querySelector('input[name="shortcut"]:checked').value;
-    }}
-
-    function setBanner(message, kind="muted") {{
-      banner.className = `status ${{kind}}`;
-      banner.textContent = message;
-    }}
-
-    async function sendJson(url, payload) {{
-      const response = await fetch(url, {{
-        method: "POST",
-        headers: {{
-          "Content-Type": "application/json"
-        }},
-        body: JSON.stringify(payload)
-      }});
-      return await response.json();
     }}
 
     function actionLabel(item) {{
@@ -356,10 +460,87 @@ def render_index_html(config: AppConfig) -> str:
       return "复制到剪贴板";
     }}
 
+    function setBanner(message, kind = "muted") {{
+      banner.className = `status ${{kind}}`;
+      banner.textContent = message;
+    }}
+
+    function setPairBanner(message, kind = "muted") {{
+      pairBanner.className = `status ${{kind}}`;
+      pairBanner.textContent = message;
+    }}
+
+    function applyPairState(payload) {{
+      if (payload.state === "authorized") {{
+        if (payload.token) {{
+          sessionToken = payload.token;
+          storage.setItem("network_input_session_token", sessionToken);
+        }}
+        pairCard.classList.add("hidden");
+        controlCard.classList.remove("hidden");
+        statusCard.classList.remove("hidden");
+        setBanner("设备已联机，可以发送。", "success");
+        return true;
+      }}
+      controlCard.classList.add("hidden");
+      statusCard.classList.add("hidden");
+      pairCard.classList.remove("hidden");
+      if (payload.state === "pending") {{
+        setPairBanner(`等待主控端确认（请求 #${{payload.request_id}}）`, "warning");
+      }} else if (payload.state === "rejected") {{
+        setPairBanner("联机请求已被拒绝，请重新申请。", "error");
+      }} else {{
+        setPairBanner("设备尚未联机。", "muted");
+      }}
+      return false;
+    }}
+
+    async function fetchJson(url, options = {{}}) {{
+      const response = await fetch(url, options);
+      return await response.json();
+    }}
+
+    async function refreshPairStatus() {{
+      const payload = await fetchJson("/api/pair/status", {{
+        headers: apiHeaders(),
+      }});
+      if (!payload.ok) {{
+        setPairBanner(payload.error || "联机状态检查失败", "error");
+        return false;
+      }}
+      pairMeta.textContent = `客户端标识：${{ensureClientId()}}`;
+      return applyPairState(payload);
+    }}
+
+    async function requestPair() {{
+      const payload = await fetchJson("/api/pair/request", {{
+        method: "POST",
+        headers: {{
+          ...apiHeaders(),
+          "Content-Type": "application/json",
+        }},
+        body: JSON.stringify({{}}),
+      }});
+      if (payload.ok) {{
+        setPairBanner(`已提交联机请求（#${{payload.request.request_id}}），请等待主控端确认。`, "warning");
+      }} else {{
+        setPairBanner(payload.error || "联机请求失败", "error");
+      }}
+      await refreshPairStatus();
+    }}
+
     async function refreshHistory() {{
-      const response = await fetch("/api/history");
-      const payload = await response.json();
-      if (!payload.ok) return;
+      const payload = await fetchJson("/api/history", {{
+        headers: apiHeaders(),
+      }});
+      if (!payload.ok) {{
+        if (payload.error?.includes("未联机") || payload.error?.includes("会话已失效")) {{
+          storage.removeItem("network_input_session_token");
+          sessionToken = null;
+          await refreshPairStatus();
+        }}
+        return;
+      }}
       historyEl.innerHTML = "";
       if (!payload.items.length) {{
         historyEl.innerHTML = '<div class="muted">暂无记录</div>';
@@ -373,22 +554,42 @@ def render_index_html(config: AppConfig) -> str:
       }}
     }}
 
+    async function sendJson(url, payload) {{
+      return await fetchJson(url, {{
+        method: "POST",
+        headers: {{
+          ...apiHeaders({{"Content-Type": "application/json"}}),
+          "Content-Type": "application/json",
+        }},
+        body: JSON.stringify(payload),
+      }});
+    }}
+
+    pairButton.addEventListener("click", requestPair);
+    refreshPairButton.addEventListener("click", refreshPairStatus);
+    logoutButton.addEventListener("click", async () => {{
+      await sendJson("/api/pair/logout", {{}});
+      storage.removeItem("network_input_session_token");
+      sessionToken = null;
+      await refreshPairStatus();
+    }});
+
     sendButton.addEventListener("click", async () => {{
-      const payload = {{
+      const result = await sendJson("/api/send", {{
         text: textEl.value,
         source: "web",
         auto_paste: autoPasteEl.checked,
-        shortcut: selectedShortcut()
-      }};
-      const result = await sendJson("/api/send", payload);
+        shortcut: selectedShortcut(),
+      }});
       if (result.ok) {{
         textEl.value = "";
-        if (result.record.action === "copy_and_paste") {{
-          setBanner(`已发送并尝试自动上屏：${{result.record.shortcut}}`, "success");
+        const record = result.record;
+        if (record.action === "copy_and_paste") {{
+          setBanner(`已发送并尝试自动上屏：${{record.shortcut}}`, "success");
         }} else {{
           setBanner("已复制到剪贴板，请手动粘贴。", "success");
         }}
-        refreshHistory();
+        await refreshHistory();
       }} else {{
         setBanner(result.error || "发送失败", "error");
       }}
@@ -398,14 +599,26 @@ def render_index_html(config: AppConfig) -> str:
       const result = await sendJson("/api/enter", {{}});
       if (result.ok) {{
         setBanner("已发送回车。", "success");
-        refreshHistory();
+        await refreshHistory();
       }} else {{
         setBanner(result.error || "发送回车失败", "error");
       }}
     }});
 
-    refreshHistory();
-    setInterval(refreshHistory, 2000);
+    async function boot() {{
+      const authorized = await refreshPairStatus();
+      if (authorized) {{
+        await refreshHistory();
+      }}
+      setInterval(async () => {{
+        const paired = await refreshPairStatus();
+        if (paired) {{
+          await refreshHistory();
+        }}
+      }}, 2000);
+    }}
+
+    boot();
   </script>
 </body>
 </html>"""

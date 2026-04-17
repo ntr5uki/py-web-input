@@ -4,6 +4,7 @@ import atexit
 import socket
 import threading
 
+from .auth import PairingManager
 from .config import AppConfig
 from .http_api import ApiServer
 from .input_backends import create_input_backend
@@ -14,12 +15,13 @@ class AppRuntime:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.backend = create_input_backend(config.input_backend)
+        self.pairing = PairingManager()
         self.service = MessageService(
             self.backend,
             max_history=config.max_history,
             enable_notifications=config.enable_notifications,
         )
-        self.api = ApiServer(self.service, config)
+        self.api = ApiServer(self.service, config, self.pairing)
         self._started = False
         self._stop_event = threading.Event()
 
