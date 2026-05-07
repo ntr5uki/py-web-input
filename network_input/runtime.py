@@ -14,7 +14,10 @@ from .service import MessageService
 class AppRuntime:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-        self.backend = create_input_backend(config.input_backend)
+        self.backend = create_input_backend(
+            config.input_backend,
+            windows_paste_delay_ms=config.windows_paste_delay_ms,
+        )
         self.pairing = PairingManager()
         self.service = MessageService(
             self.backend,

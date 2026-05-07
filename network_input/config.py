@@ -11,7 +11,8 @@ class AppConfig:
     enable_notifications: bool = False
     max_history: int = 20
     api_token: str | None = None
-    input_backend: str = "clipboard"
+    input_backend: str = "auto"
+    windows_paste_delay_ms: int = 80
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -22,7 +23,8 @@ class AppConfig:
             enable_notifications=_env_bool("NETWORK_INPUT_ENABLE_NOTIFICATIONS", default=False),
             max_history=int(os.getenv("NETWORK_INPUT_MAX_HISTORY", "20")),
             api_token=api_token,
-            input_backend=os.getenv("NETWORK_INPUT_BACKEND", "clipboard").strip() or "clipboard",
+            input_backend=os.getenv("NETWORK_INPUT_BACKEND", "auto").strip() or "auto",
+            windows_paste_delay_ms=int(os.getenv("NETWORK_INPUT_WINDOWS_PASTE_DELAY_MS", "80")),
         )
 
 
