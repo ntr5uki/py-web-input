@@ -6,8 +6,16 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = []
 
-[tool.uv]
-package = false
+[project.scripts]
+py-network-input = "network_input.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["network_input*"]
+exclude = ["tests*", "Plan*"]
 
 
 [[tool.uv.index]]

@@ -12,7 +12,7 @@
 
 ## 运行前准备
 
-1. 安装 Python 依赖：
+1. 开发前同步 Python 环境：
 
 ```bash
 uv sync
@@ -35,6 +35,14 @@ sudo apt install wtype
 Windows 下不需要安装 `wl-clipboard` 或 `wtype`，默认使用系统 WinAPI 写入剪贴板并发送快捷键。
 
 ## 启动
+
+推荐以工具方式启动：
+
+```bash
+uvx --from . py-network-input
+```
+
+开发调试时也可以直接从源码模块启动：
 
 ```bash
 uv run python -m network_input
@@ -108,15 +116,14 @@ curl -X POST \
 Windows 10/11 下可以直接启动：
 
 ```powershell
-uv sync
-uv run python -m network_input
+uvx --from . py-network-input
 ```
 
 默认 `NETWORK_INPUT_BACKEND=auto` 会在 Windows 上选择 WinAPI 后端。也可以显式指定：
 
 ```powershell
 $env:NETWORK_INPUT_BACKEND = "windows"
-uv run python -m network_input
+uvx --from . py-network-input
 ```
 
 Windows 后端支持：
