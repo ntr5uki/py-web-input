@@ -38,6 +38,12 @@ sudo apt install wtype
 uv run python -m network_input
 ```
 
+也可以直接从 GitHub 运行：
+
+```bash
+uvx --from git+https://github.com/ntr5uki/py-web-input py-web-input
+```
+
 默认服务监听：
 
 - `0.0.0.0:18502`
